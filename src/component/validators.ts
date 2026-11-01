@@ -53,7 +53,7 @@ export type ResourceCaller = Infer<typeof resourceCaller>;
 export const ensureInstanceResult = v.union(
   v.object({ status: v.literal("ready"), instanceId: v.string(), instance: packageInstance }),
   v.object({ status: v.literal("inProgress"), retryAfterSeconds: v.number() }),
-  v.object({ status: v.literal("personNeeded"), reason: v.string(), url: v.string() }),
+  v.object({ status: v.literal("personNeeded"), reason: v.string(), url: v.string(), resultUrl: v.optional(v.string()) }),
   v.object({ status: v.literal("refused"), reason: v.string() }),
 );
 export type EnsureInstanceResult = Infer<typeof ensureInstanceResult>;

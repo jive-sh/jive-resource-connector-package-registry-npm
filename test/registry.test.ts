@@ -267,14 +267,28 @@ describe("against a fake registry", () => {
         ok: true,
         value: {
           status: "personNeeded",
-          reason: `npm asks for its second factor to publish ${packageName}'s placeholder; a person answers it on npm's page, and Jive cannot pass that answer back to npm yet`,
+          reason: `npm asks for its second factor to publish ${packageName}'s placeholder`,
           url: "https://www.npmjs.com/auth/cli/approve-1",
+          resultUrl: "https://registry.npmjs.org/-/v1/done?authId=1",
         },
       };
       expect(await ensure(packageName, "repo-1")).toEqual(personNeeded);
       // Not inProgress: the first call released its claim.
       expect(await ensure(packageName, "repo-1")).toEqual(personNeeded);
       expect(registry.publishes).toHaveLength(publishes);
+    }, TIMEOUT);
+
+    test("the one-time password is sent as npm-otp, and a new package then becomes ready", async () => {
+      const packageName = "ensure-answered";
+      const result = await call("ensureInstance", {
+        instance: { packageName },
+        caller: caller("repo-answered"),
+        account,
+        oneTimePassword: ANSWERED_PASSWORD,
+      });
+      expect(result).toMatchObject({ ok: true, value: { status: "ready", instance: { packageName } } });
+      expect(registry.publishes.some((publish) => publish.name === packageName)).toBe(true);
+      expect(registry.oneTimePasswordsSeen).toContain(ANSWERED_PASSWORD);
     }, TIMEOUT);
 
     test("a package whose publisher for the caller has published is ready with no write, with the same instanceId every time", async () => {

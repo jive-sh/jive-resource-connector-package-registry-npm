@@ -31,9 +31,9 @@ type RegistryOutcome =
  * however this ends.
  */
 export const ensureInstance = action({
-  args: { instance: packageInstance, caller: resourceCaller, account },
+  args: { instance: packageInstance, caller: resourceCaller, account, oneTimePassword: v.optional(v.string()) },
   returns: ensureInstanceResult,
-  handler: async (ctx, { instance, caller, account }): Promise<EnsureInstanceResult> => {
+  handler: async (ctx, { instance, caller, account, oneTimePassword }): Promise<EnsureInstanceResult> => {
     const { packageName } = instance;
     const record = await ctx.runQuery(internal.resource.packageRecord, { packageName });
     if (record !== null && record.codeRepositoryId !== caller.codeRepository.id) {
@@ -46,7 +46,14 @@ export const ensureInstance = action({
     try {
       const now = Date.now();
       const maybeRegisteredAt = Option.fromUndefinedOr(record?.trustedPublishers.find((publisher) => publisher.environment === caller.environment)?.registeredAt);
-      const outcome = await runAgainstRegistry(provision({ packageName, caller, account, maybeRegisteredAt, now }));
+      const outcome = await runAgainstRegistry(provision({
+        packageName,
+        caller,
+        account,
+        maybeOneTimePassword: oneTimePassword === undefined ? Option.none() : Option.some(oneTimePassword),
+        maybeRegisteredAt,
+        now,
+      }));
       if (outcome.status !== "provisioned") return outcome;
       const instanceId = await ctx.runMutation(internal.resource.recordProvisioned, {
         packageName,
@@ -61,9 +68,14 @@ export const ensureInstance = action({
   },
 });
 
-/** A write npm wants its second factor for: the person answers on npm's page, which nothing passes back yet. */
-function personNeeded(operation: string, pageUrl: string): RegistryOutcome {
-  return { status: "personNeeded", reason: `npm asks for its second factor to ${operation}; a person answers it on npm's page, and Jive cannot pass that answer back to npm yet`, url: pageUrl };
+/** A write npm wants its second factor for. `url` is npm's page; `resultUrl` is where the one-time password is polled. */
+function personNeeded(operation: string, factor: { readonly pageUrl: string; readonly resultUrl: string }): RegistryOutcome {
+  return {
+    status: "personNeeded",
+    reason: `npm asks for its second factor to ${operation}`,
+    url: factor.pageUrl,
+    resultUrl: factor.resultUrl,
+  };
 }
 
 /**
@@ -76,12 +88,13 @@ function provision(input: {
   readonly packageName: string;
   readonly caller: ResourceCaller;
   readonly account: Account;
+  readonly maybeOneTimePassword: Option.Option<string>;
   readonly maybeRegisteredAt: Option.Option<number>;
   readonly now: number;
 }): Effect.Effect<RegistryOutcome, RegistryRequestFailed, NpmRegistry> {
   return Effect.gen(function* () {
     const npm = yield* NpmRegistry;
-    const { packageName, caller, account } = input;
+    const { packageName, caller, account, maybeOneTimePassword } = input;
 
     const maybeMaintainers = yield* npm.maintainers(packageName);
     if (Option.isSome(maybeMaintainers)) {
@@ -92,11 +105,11 @@ function provision(input: {
       const published = yield* npm.publishPlaceholder({
         packageName,
         account,
-        maybeOneTimePassword: Option.none(),
+        maybeOneTimePassword,
         version: PLACEHOLDER_VERSION,
         description: placeholderDescription(packageName),
       });
-      if (published.status === "secondFactorRequired") return personNeeded(`publish ${packageName}'s placeholder`, published.pageUrl);
+      if (published.status === "secondFactorRequired") return personNeeded(`publish ${packageName}'s placeholder`, published);
     }
 
     const wanted: TrustedPublisherClaims = {
@@ -113,11 +126,11 @@ function provision(input: {
     });
     if (plan.action === "keep") return { status: "provisioned", registeredPublisher: false } as const;
     for (const id of plan.removeIds) {
-      const removed = yield* npm.removeTrustedPublisher({ packageName, id, account, maybeOneTimePassword: Option.none() });
-      if (removed.status === "secondFactorRequired") return personNeeded(`remove trusted publisher ${id} from ${packageName}`, removed.pageUrl);
+      const removed = yield* npm.removeTrustedPublisher({ packageName, id, account, maybeOneTimePassword });
+      if (removed.status === "secondFactorRequired") return personNeeded(`remove trusted publisher ${id} from ${packageName}`, removed);
     }
-    const added = yield* npm.addTrustedPublisher({ packageName, account, claims: wanted, maybeOneTimePassword: Option.none() });
-    if (added.status === "secondFactorRequired") return personNeeded(`register a trusted publisher on ${packageName}`, added.pageUrl);
+    const added = yield* npm.addTrustedPublisher({ packageName, account, claims: wanted, maybeOneTimePassword });
+    if (added.status === "secondFactorRequired") return personNeeded(`register a trusted publisher on ${packageName}`, added);
     return { status: "provisioned", registeredPublisher: true } as const;
   });
 }

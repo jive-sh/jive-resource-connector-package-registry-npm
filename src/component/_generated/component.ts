@@ -119,6 +119,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             workflowFile: string;
           };
           instance: { packageName: string };
+          oneTimePassword?: string;
         },
         | {
             instance: { packageName: string };
@@ -126,7 +127,12 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             status: "ready";
           }
         | { retryAfterSeconds: number; status: "inProgress" }
-        | { reason: string; status: "personNeeded"; url: string }
+        | {
+            reason: string;
+            resultUrl?: string;
+            status: "personNeeded";
+            url: string;
+          }
         | { reason: string; status: "refused" },
         Name
       >;

@@ -56,6 +56,7 @@ export const ensureInstance = action({
       workflowFile: v.string(),
     }),
     account,
+    oneTimePassword,
   },
   handler: (ctx, args) => ctx.runAction(components.packageRegistryNpm.resource.ensureInstance, args),
 });

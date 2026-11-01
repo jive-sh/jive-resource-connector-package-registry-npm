@@ -129,8 +129,9 @@ runs the tests:
     (owner and repository names compared case-insensitively), validated status, removal, the `secondFactorRequired` answer
     and the retry with the password, a refused password, a refused token, and that nothing printed contains the
     token or a password;
-  - `resource.ensureInstance` against the same fake: a new package answering `personNeeded` with npm's page and
-    publishing nothing, a package whose publisher has published `ready` with no write and the same `instanceId`
+  - `resource.ensureInstance` against the same fake: a new package answering `personNeeded` with npm's `authUrl`
+    as `url` and `doneUrl` as `resultUrl`, publishing nothing; the same call with `oneTimePassword` sending it as
+    `npm-otp` and becoming `ready`; a package whose publisher has published `ready` with no write and the same `instanceId`
     each time, another code repository refused, a package another account maintains refused, an unrecorded
     unvalidated publisher replaced, and a held claim answering `inProgress`.
 - `test/publisherPlan.test.ts`: when a publisher is kept and when it is replaced.
