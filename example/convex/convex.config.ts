@@ -1,6 +1,6 @@
 import { defineApp } from "convex/server";
 import { v } from "convex/values";
-import packageRegistryNpm from "jive-connector-package-registry-npm/convex.config.js";
+import packageRegistryNpm from "jive-resource-connector-package-registry-npm/convex.config.js";
 
 const app = defineApp({
   env: {

@@ -4,7 +4,6 @@ import { action, env } from "./_generated/server";
 import { sameClaims } from "./claims";
 import { npmRegistryLayer } from "./npm/impl";
 import { NpmRegistry } from "./npm/interface";
-import { secondFactorLayer } from "./secondFactor/impl";
 import {
   account,
   createPlaceholderResult,
@@ -15,9 +14,12 @@ import {
 } from "./validators";
 
 /**
- * The `PackageRegistryComponentApi` functions (jive-abstract-connector-package-registry), for npm. Each action is
+ * The `PackageRegistryComponentApi` functions (jive-abstract-resource-connector-package-registry), for npm. Each action is
  * a runtime boundary: it runs one Effect program against the configured registry, and an unexpected failure
- * becomes the action's error, with its message. No message carries the account's token, secret or a code.
+ * becomes the action's error, with its message. No message carries the account's token or a one-time password. A
+ * write npm guards with its second factor answers `secondFactorRequired` with npm's own page, which a person answers
+ * in their own browser; the caller polls `resultUrl` for the one-time password and repeats the call with it as
+ * `oneTimePassword`. Nothing here answers a second factor.
  */
 
 const NPM_REGISTRY_URL = "https://registry.npmjs.org";
@@ -32,7 +34,7 @@ function runAgainstRegistry<A, E extends { readonly message: string }>(program: 
   return Effect.runPromise(pipe(
     program,
     Effect.mapError((e) => new Error(e.message)),
-    Effect.provide(pipe(npmRegistryLayer(env.NPM_REGISTRY_URL ?? NPM_REGISTRY_URL), Layer.provide(secondFactorLayer))),
+    Effect.provide(npmRegistryLayer(env.NPM_REGISTRY_URL ?? NPM_REGISTRY_URL)),
   ));
 }
 
@@ -50,9 +52,9 @@ export const packageExists = action({
  * existing package is left alone, and reported as `alreadyExists` only when `account` is one of its maintainers.
  */
 export const createPlaceholder = action({
-  args: { packageName: v.string(), account },
+  args: { packageName: v.string(), account, oneTimePassword: v.optional(v.string()) },
   returns: createPlaceholderResult,
-  handler: (_ctx, { packageName, account }) => runAgainstRegistry(Effect.gen(function* () {
+  handler: (_ctx, { packageName, account, oneTimePassword }) => runAgainstRegistry(Effect.gen(function* () {
     const npm = yield* NpmRegistry;
     const maybeMaintainers = yield* npm.maintainers(packageName);
     if (Option.isSome(maybeMaintainers)) {
@@ -61,12 +63,14 @@ export const createPlaceholder = action({
         ? { status: "alreadyExists" } as const
         : { status: "maintainedByAnotherAccount" } as const;
     }
-    yield* npm.publishPlaceholder({
+    const published = yield* npm.publishPlaceholder({
       packageName,
       account,
+      maybeOneTimePassword: Option.fromUndefinedOr(oneTimePassword),
       version: PLACEHOLDER_VERSION,
       description: `Reserved by Jive: ${packageName}'s first release is published by its CI pipeline.`,
     });
+    if (published.status === "secondFactorRequired") return published;
     return { status: "created", version: PLACEHOLDER_VERSION } as const;
   })),
 });
@@ -91,23 +95,25 @@ export const listTrustedPublishers = action({
  * days, so call this just before that workflow publishes.
  */
 export const registerTrustedPublisher = action({
-  args: { packageName: v.string(), publisher: trustedPublisherClaims, account },
+  args: { packageName: v.string(), publisher: trustedPublisherClaims, account, oneTimePassword: v.optional(v.string()) },
   returns: registerTrustedPublisherResult,
-  handler: (_ctx, { packageName, publisher, account }) => runAgainstRegistry(Effect.gen(function* () {
+  handler: (_ctx, { packageName, publisher, account, oneTimePassword }) => runAgainstRegistry(Effect.gen(function* () {
     const npm = yield* NpmRegistry;
     const existing = (yield* npm.listTrustedPublishers({ packageName, account })).find((candidate) => sameClaims(candidate.claims, publisher));
     if (existing !== undefined) return { status: "alreadyRegistered", id: existing.id } as const;
-    yield* npm.addTrustedPublisher({ packageName, account, claims: publisher });
+    const added = yield* npm.addTrustedPublisher({ packageName, account, claims: publisher, maybeOneTimePassword: Option.fromUndefinedOr(oneTimePassword) });
+    if (added.status === "secondFactorRequired") return added;
     return { status: "registered" } as const;
   })),
 });
 
 /** Deletes one trusted publisher by the id `listTrustedPublishers` reported; one already gone is `notFound`. */
 export const removeTrustedPublisher = action({
-  args: { packageName: v.string(), id: v.string(), account },
+  args: { packageName: v.string(), id: v.string(), account, oneTimePassword: v.optional(v.string()) },
   returns: removeTrustedPublisherResult,
-  handler: (_ctx, { packageName, id, account }) => runAgainstRegistry(Effect.gen(function* () {
-    const removed = yield* (yield* NpmRegistry).removeTrustedPublisher({ packageName, id, account });
-    return removed ? { status: "removed" } as const : { status: "notFound" } as const;
+  handler: (_ctx, { packageName, id, account, oneTimePassword }) => runAgainstRegistry(Effect.gen(function* () {
+    const removed = yield* (yield* NpmRegistry).removeTrustedPublisher({ packageName, id, account, maybeOneTimePassword: Option.fromUndefinedOr(oneTimePassword) });
+    if (removed.status === "secondFactorRequired") return removed;
+    return removed.value ? { status: "removed" } as const : { status: "notFound" } as const;
   })),
 });

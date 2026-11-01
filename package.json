@@ -1,19 +1,19 @@
 {
   "$schema": "./package.schema.json",
-  "name": "jive-connector-package-registry-npm",
-  "description": "A Jive connector to npm: a Convex component that checks packages exist, creates new packages as a person's npm account, and registers trusted publishers, implementing jive-abstract-connector-package-registry's contract.",
-  "version": "0.2.0",
+  "name": "jive-resource-connector-package-registry-npm",
+  "description": "A Jive connector to npm: a resource, as a Convex component, that checks packages exist, creates new packages as a person's npm account, and registers trusted publishers, implementing jive-abstract-resource-connector-package-registry's contract.",
+  "version": "0.1.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "jive:cicd:get-config": "jive-connector-package-registry cicd get-config",
-    "jive:cicd:build": "jive-connector-package-registry cicd build",
-    "jive:cicd:audit": "jive-connector-package-registry cicd audit && bun test",
-    "jive:cicd:deploy:plan": "jive-connector-package-registry cicd deploy-plan",
-    "jive:cicd:upload-artifacts": "jive-connector-package-registry cicd upload-artifacts",
-    "jive:cicd:deploy": "jive-connector-package-registry cicd deploy",
-    "codegen": "jive-connector-package-registry codegen",
-    "dev": "jive-connector-package-registry dev"
+    "jive:cicd:get-config": "jive-resource-connector-package-registry cicd get-config",
+    "jive:cicd:build": "jive-resource-connector-package-registry cicd build",
+    "jive:cicd:audit": "jive-resource-connector-package-registry cicd audit && bun test",
+    "jive:cicd:deploy:plan": "jive-resource-connector-package-registry cicd deploy-plan",
+    "jive:cicd:upload-artifacts": "jive-resource-connector-package-registry cicd upload-artifacts",
+    "jive:cicd:deploy": "jive-resource-connector-package-registry cicd deploy",
+    "codegen": "jive-resource-connector-package-registry codegen",
+    "dev": "jive-resource-connector-package-registry dev"
   },
   "dependencies": {
     "effect": "^4.0.0",
@@ -25,7 +25,7 @@
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "convex": "^1.48.0",
-    "jive-abstract-connector-package-registry": "^0.3.0",
+    "jive-abstract-resource-connector-package-registry": "^0.1.0",
     "typescript": "^5.9.3"
   },
   "jive": {

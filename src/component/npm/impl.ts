@@ -1,8 +1,15 @@
 import { Effect, Layer, Option, Schema, pipe } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
-import { SecondFactor, type ISecondFactor } from "../secondFactor/interface";
 import type { Account, TrustedPublisher, TrustedPublisherClaims } from "../validators";
-import { NpmRegistry, RegistryRequestFailed, type AccountOperationError, type AsAccount, type INpmRegistry } from "./interface";
+import {
+  NpmRegistry,
+  RegistryRequestFailed,
+  type AsAccount,
+  type INpmRegistry,
+  type SecondFactorRequired,
+  type WriteAnswer,
+  type WriteAsAccount,
+} from "./interface";
 import { packTarball, toBase64 } from "./tarball";
 
 /**
@@ -46,6 +53,12 @@ type Packument = typeof Packument.Type;
 
 const Whoami = Schema.fromJsonString(Schema.Struct({ username: Schema.String }));
 
+/**
+ * The body of npm's second-factor challenge to a request sent with `npm-auth-type: web`: the page where a person
+ * answers, and where the one-time password is then fetched (npm-registry-fetch `check-response.js`).
+ */
+const WebAuthChallenge = Schema.fromJsonString(Schema.Struct({ authUrl: Schema.String, doneUrl: Schema.String }));
+
 /** One registry response, its body read once, so detecting the second-factor challenge doesn't consume it. */
 interface RegistryAnswer {
   readonly status: number;
@@ -84,7 +97,6 @@ function trustConfigFieldNames(text: string): ReadonlyArray<string> {
 class NpmRegistryImpl implements INpmRegistry {
   constructor(
     private readonly client: HttpClient.HttpClient,
-    private readonly secondFactor: ISecondFactor,
     /** e.g. "https://registry.npmjs.org", without a trailing slash. */
     private readonly registryUrl: string,
   ) {}
@@ -113,9 +125,9 @@ class NpmRegistryImpl implements INpmRegistry {
     return username;
   }
 
-  *publishPlaceholder(input: AsAccount & { readonly version: string; readonly description: string }): Effect.fn.Return<
-    void,
-    AccountOperationError
+  *publishPlaceholder(input: WriteAsAccount & { readonly version: string; readonly description: string }): Effect.fn.Return<
+    WriteAnswer<void>,
+    RegistryRequestFailed
   > {
     const { packageName: name, version, description } = input;
     const operation = `publish ${name}@${version}`;
@@ -141,13 +153,16 @@ class NpmRegistryImpl implements INpmRegistry {
       },
     };
     const request = HttpClientRequest.bodyJsonUnsafe(HttpClientRequest.put(this.packageUrl(name)), document);
-    const answer = yield* this.sendAsAccount(operation, request, input.account);
-    if (!succeeded(answer)) return yield* this.unexpected(operation, answer);
+    const answer = yield* this.sendWrite(operation, request, input);
+    if (answer.status === "secondFactorRequired") return answer;
+    if (!succeeded(answer.value)) return yield* this.unexpected(operation, answer.value);
+    return { status: "done", value: undefined };
   }
 
-  *listTrustedPublishers(input: AsAccount): Effect.fn.Return<ReadonlyArray<TrustedPublisher>, AccountOperationError> {
+  *listTrustedPublishers(input: AsAccount): Effect.fn.Return<ReadonlyArray<TrustedPublisher>, RegistryRequestFailed> {
     const operation = `list the trusted publishers of ${input.packageName}`;
-    const answer = yield* this.sendAsAccount(operation, HttpClientRequest.get(this.trustUrl(input.packageName)), input.account);
+    const answer = yield* this.send(operation, this.authenticated(HttpClientRequest.get(this.trustUrl(input.packageName)), input.account));
+    if (asksForSecondFactor(answer)) return yield* new RegistryRequestFailed({ operation, detail: "npm asked for a second factor to read them" });
     if (answer.status !== 200) return yield* this.unexpected(operation, answer);
     yield* this.logTrustConfigFields(answer);
     const configs = yield* this.decode(operation, TrustConfigs, answer);
@@ -166,7 +181,10 @@ class NpmRegistryImpl implements INpmRegistry {
     });
   }
 
-  *addTrustedPublisher(input: AsAccount & { readonly claims: TrustedPublisherClaims }): Effect.fn.Return<void, AccountOperationError> {
+  *addTrustedPublisher(input: WriteAsAccount & { readonly claims: TrustedPublisherClaims }): Effect.fn.Return<
+    WriteAnswer<void>,
+    RegistryRequestFailed
+  > {
     const operation = `add a trusted publisher to ${input.packageName}`;
     const { repository, workflowFile, environment } = input.claims;
     // The body `npm trust github` sends: an array of one configuration.
@@ -180,17 +198,20 @@ class NpmRegistryImpl implements INpmRegistry {
       permissions: [PUBLISH_PERMISSION],
     }];
     const request = HttpClientRequest.bodyJsonUnsafe(HttpClientRequest.post(this.trustUrl(input.packageName)), body);
-    const answer = yield* this.sendAsAccount(operation, request, input.account);
-    if (!succeeded(answer)) return yield* this.unexpected(operation, answer);
+    const answer = yield* this.sendWrite(operation, request, input);
+    if (answer.status === "secondFactorRequired") return answer;
+    if (!succeeded(answer.value)) return yield* this.unexpected(operation, answer.value);
+    return { status: "done", value: undefined };
   }
 
-  *removeTrustedPublisher(input: AsAccount & { readonly id: string }): Effect.fn.Return<boolean, AccountOperationError> {
+  *removeTrustedPublisher(input: WriteAsAccount & { readonly id: string }): Effect.fn.Return<WriteAnswer<boolean>, RegistryRequestFailed> {
     const operation = `remove trusted publisher ${input.id} from ${input.packageName}`;
     const request = HttpClientRequest.delete(`${this.trustUrl(input.packageName)}/${encodeURIComponent(input.id)}`);
-    const answer = yield* this.sendAsAccount(operation, request, input.account);
-    if (answer.status === 404) return false;
-    if (!succeeded(answer)) return yield* this.unexpected(operation, answer);
-    return true;
+    const answer = yield* this.sendWrite(operation, request, input);
+    if (answer.status === "secondFactorRequired") return answer;
+    if (answer.value.status === 404) return { status: "done", value: false };
+    if (!succeeded(answer.value)) return yield* this.unexpected(operation, answer.value);
+    return { status: "done", value: true };
   }
 
   private packageUrl(packageName: string): string {
@@ -242,27 +263,27 @@ class NpmRegistryImpl implements INpmRegistry {
   }
 
   /**
-   * Sends the request as the account. When npm refuses it for want of a one-time password (its EOTP), sends it
-   * once more with the code the account's second factor gives now, as `npm-otp`; a second refusal fails, since a
-   * correct current code that npm still refuses will not succeed by retrying.
+   * Sends a write as the account, with `npm-otp` when the caller has a one-time password. When npm refuses it for
+   * want of one (its EOTP), answers npm's page for a person instead: a one-time password npm still refuses also
+   * answers it, since only a person's fresh answer can satisfy npm.
    */
-  private *sendAsAccount(
+  private *sendWrite(
     operation: string,
     request: HttpClientRequest.HttpClientRequest,
-    account: Account,
-  ): Effect.fn.Return<RegistryAnswer, AccountOperationError> {
-    const authenticated = this.authenticated(request, account);
-    const first = yield* this.send(operation, authenticated);
-    if (!asksForSecondFactor(first)) return first;
-    const oneTimePassword = yield* this.secondFactor.oneTimePassword(account.secondFactor);
-    const second = yield* this.send(operation, HttpClientRequest.setHeader(authenticated, "npm-otp", oneTimePassword));
-    if (asksForSecondFactor(second)) {
-      return yield* new RegistryRequestFailed({
-        operation,
-        detail: "npm refused the one-time password computed from the account's authenticator secret (is the secret the one npm's two-factor setup showed, and the server's clock right?)",
-      });
-    }
-    return second;
+    input: WriteAsAccount,
+  ): Effect.fn.Return<WriteAnswer<RegistryAnswer>, RegistryRequestFailed> {
+    const authenticated = this.authenticated(request, input.account);
+    const answer = yield* this.send(operation, Option.match(input.maybeOneTimePassword, {
+      onNone: () => authenticated,
+      onSome: (oneTimePassword) => HttpClientRequest.setHeader(authenticated, "npm-otp", oneTimePassword),
+    }));
+    if (!asksForSecondFactor(answer)) return { status: "done", value: answer };
+    const challenge = yield* pipe(
+      Schema.decodeUnknownEffect(WebAuthChallenge)(answer.text),
+      Effect.mapError(() => new RegistryRequestFailed({ operation, detail: "npm asked for a one-time password but offered no page to answer it on" })),
+    );
+    const required: SecondFactorRequired = { status: "secondFactorRequired", pageUrl: challenge.authUrl, resultUrl: challenge.doneUrl };
+    return required;
   }
 
   private *send(operation: string, request: HttpClientRequest.HttpClientRequest): Effect.fn.Return<RegistryAnswer, RegistryRequestFailed> {
@@ -286,10 +307,10 @@ class NpmRegistryImpl implements INpmRegistry {
 }
 
 /** The registry at `registryUrl`, over `fetch`, which is all a Convex component's runtime offers. */
-export function npmRegistryLayer(registryUrl: string): Layer.Layer<NpmRegistry, never, SecondFactor> {
+export function npmRegistryLayer(registryUrl: string): Layer.Layer<NpmRegistry> {
   return pipe(
     Layer.effect(NpmRegistry, Effect.gen(function* () {
-      return new NpmRegistryImpl(yield* HttpClient.HttpClient, yield* SecondFactor, registryUrl.replace(/\/+$/, ""));
+      return new NpmRegistryImpl(yield* HttpClient.HttpClient, registryUrl.replace(/\/+$/, ""));
     })),
     Layer.provide(FetchHttpClient.layer),
   );

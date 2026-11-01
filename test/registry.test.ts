@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createHash, createHmac } from "node:crypto";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -14,29 +14,11 @@ import { join, resolve } from "node:path";
 const APP_DIR = resolve(import.meta.dir, "../dist/audit-app");
 const TOKEN = "fake-token";
 const USERNAME = "jive-test-account";
-/** The RFC 6238 test secret ("12345678901234567890") in base32, as an authenticator app shows a secret. */
-const TOTP_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+/** The one-time password the fake registry hands out once a person "answers" its page: a stand-in for npm's doneUrl. */
+const ANSWERED_PASSWORD = "731944";
 const MAINTAINED = "maintained-by-the-account";
 const SOMEONE_ELSES = "maintained-by-someone-else";
 const TIMEOUT = 2 * 60 * 1000;
-
-/**
- * The 6-digit TOTP code for the test secret `stepOffset` steps from now, computed with Node's HMAC rather than the
- * connector's Web Crypto code, so the fake registry checks the connector against a second implementation.
- */
-function expectedCode(stepOffset: number): string {
-  const counter = Math.floor(Date.now() / 1000 / 30) + stepOffset;
-  const message = Buffer.alloc(8);
-  message.writeBigUInt64BE(BigInt(counter));
-  const mac = createHmac("sha1", "12345678901234567890").update(message).digest();
-  const offset = mac[mac.length - 1]! & 0x0f;
-  return ((mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, "0");
-}
-
-/** A code from this step or an adjacent one, which a request crossing a step boundary may carry. */
-function acceptedCode(code: string | null): boolean {
-  return code !== null && [-1, 0, 1].some((offset) => expectedCode(offset) === code);
-}
 
 async function convex(args: ReadonlyArray<string>) {
   // Async, never spawnSync: the fake registry is served by this process, which must keep answering meanwhile.
@@ -45,7 +27,7 @@ async function convex(args: ReadonlyArray<string>) {
   return { exitCode, stdout, stderr };
 }
 
-/** Everything `convex run` printed, across calls, to check no secret or code ever reaches a log. */
+/** Everything `convex run` printed, across calls, to check no token or one-time password ever reaches a log. */
 const printed: Array<string> = [];
 
 async function call(fn: string, args: Record<string, unknown>) {
@@ -99,7 +81,7 @@ beforeAll(() => {
       const authorized = request.headers.get("authorization") === `Bearer ${TOKEN}`;
       const oneTimePassword = request.headers.get("npm-otp");
       if (oneTimePassword !== null) registry.oneTimePasswordsSeen.push(oneTimePassword);
-      const secondFactor = acceptedCode(oneTimePassword);
+      const secondFactor = oneTimePassword === ANSWERED_PASSWORD;
 
       if (url.pathname === "/-/whoami") {
         return authorized ? Response.json({ username: USERNAME }) : new Response("Unauthorized", { status: 401 });
@@ -150,7 +132,12 @@ describe("against registry.npmjs.org (read-only)", () => {
 });
 
 describe("against a fake registry", () => {
-  const account = { token: TOKEN, secondFactor: { type: "totp", secret: TOTP_SECRET } };
+  const account = { token: TOKEN };
+  const secondFactorRequired = {
+    status: "secondFactorRequired",
+    pageUrl: "https://www.npmjs.com/auth/cli/approve-1",
+    resultUrl: "https://registry.npmjs.org/-/v1/done?authId=1",
+  };
   const publisher = { provider: "github", repository: { owner: "jive-sh", name: "example" }, workflowFile: "pipeline.yml", environment: "latest" };
 
   beforeAll(async () => {
@@ -162,9 +149,12 @@ describe("against a fake registry", () => {
     expect(await call("packageExists", { packageName: MAINTAINED })).toEqual({ ok: true, value: true });
   }, TIMEOUT);
 
-  test("createPlaceholder answers npm's second-factor challenge with the current TOTP code and publishes an installable 0.0.0", async () => {
+  test("createPlaceholder hands back npm's second-factor page, then publishes an installable 0.0.0 with the password a person's answer produced", async () => {
     const packageName = "@jive-sh/placeholder-example";
-    expect(await call("createPlaceholder", { packageName, account })).toEqual({ ok: true, value: { status: "created", version: "0.0.0" } });
+    expect(await call("createPlaceholder", { packageName, account })).toEqual({ ok: true, value: secondFactorRequired });
+    expect(registry.publishes).toHaveLength(0);
+    expect(await call("createPlaceholder", { packageName, account, oneTimePassword: ANSWERED_PASSWORD }))
+      .toEqual({ ok: true, value: { status: "created", version: "0.0.0" } });
 
     const [published] = registry.publishes;
     expect(published!.name).toBe(packageName);
@@ -201,9 +191,12 @@ describe("against a fake registry", () => {
     expect(registry.publishes).toHaveLength(1);
   }, TIMEOUT);
 
-  test("registerTrustedPublisher answers the second factor, registers once, then reports it registered", async () => {
+  test("registerTrustedPublisher hands back npm's second-factor page, registers once with the answered password, then reports it registered", async () => {
     const packageName = MAINTAINED;
-    expect(await call("registerTrustedPublisher", { packageName, publisher, account })).toEqual({ ok: true, value: { status: "registered" } });
+    expect(await call("registerTrustedPublisher", { packageName, publisher, account })).toEqual({ ok: true, value: secondFactorRequired });
+    expect(registry.trustRequests).toHaveLength(0);
+    expect(await call("registerTrustedPublisher", { packageName, publisher, account, oneTimePassword: ANSWERED_PASSWORD }))
+      .toEqual({ ok: true, value: { status: "registered" } });
     expect(registry.trustRequests).toEqual([[{
       type: "github",
       claims: { repository: "jive-sh/example", workflow_ref: { file: "pipeline.yml" }, environment: "latest" },
@@ -227,40 +220,23 @@ describe("against a fake registry", () => {
 
   test("removeTrustedPublisher deletes a publisher, and reports one already gone as notFound", async () => {
     const packageName = MAINTAINED;
-    expect(await call("removeTrustedPublisher", { packageName, id: "trust-1", account })).toEqual({ ok: true, value: { status: "removed" } });
+    expect(await call("removeTrustedPublisher", { packageName, id: "trust-1", account })).toEqual({ ok: true, value: secondFactorRequired });
+    expect(registry.trust.get(packageName)).toHaveLength(1);
+    const answered = { packageName, id: "trust-1", account, oneTimePassword: ANSWERED_PASSWORD };
+    expect(await call("removeTrustedPublisher", answered)).toEqual({ ok: true, value: { status: "removed" } });
     expect(registry.trust.get(packageName)).toEqual([]);
-    expect(await call("removeTrustedPublisher", { packageName, id: "trust-1", account })).toEqual({ ok: true, value: { status: "notFound" } });
+    expect(await call("removeTrustedPublisher", answered)).toEqual({ ok: true, value: { status: "notFound" } });
     expect(registry.deletes).toEqual(["trust-1", "trust-1"]);
   }, TIMEOUT);
 
-  test("a wrong authenticator secret fails with npm's refusal, naming neither the secret nor the code", async () => {
-    const wrongSecret = "JBSWY3DPEHPK3PXP";
-    const before = registry.oneTimePasswordsSeen.length;
+  test("a one-time password npm refuses hands back its page again, for a fresh answer", async () => {
     const result = await call("registerTrustedPublisher", {
       packageName: MAINTAINED,
       publisher: { ...publisher, environment: "next" },
-      account: { ...account, secondFactor: { type: "totp", secret: wrongSecret } },
+      account,
+      oneTimePassword: "000000",
     });
-    expect(result.ok).toBe(false);
-    const error = result.ok ? "" : result.error;
-    expect(error).toContain("npm refused the one-time password computed from the account's authenticator secret");
-    expect(error).not.toContain(wrongSecret);
-    const sent = registry.oneTimePasswordsSeen.slice(before);
-    expect(sent).toHaveLength(1);
-    expect(error).not.toContain(sent[0]!);
-  }, TIMEOUT);
-
-  test("a secret that is not base32 fails before any code is sent", async () => {
-    const before = registry.oneTimePasswordsSeen.length;
-    const result = await call("removeTrustedPublisher", {
-      packageName: MAINTAINED,
-      id: "trust-1",
-      account: { ...account, secondFactor: { type: "totp", secret: "not base32!" } },
-    });
-    expect(result.ok).toBe(false);
-    expect(result.ok ? "" : result.error).toContain("the authenticator secret is not valid base32");
-    expect(result.ok ? "" : result.error).not.toContain("not base32!");
-    expect(registry.oneTimePasswordsSeen).toHaveLength(before);
+    expect(result).toEqual({ ok: true, value: secondFactorRequired });
   }, TIMEOUT);
 
   test("a refused credential fails the call with the registry's answer", async () => {
@@ -269,9 +245,9 @@ describe("against a fake registry", () => {
     expect(result.ok ? "" : result.error).toContain(`could not list the trusted publishers of ${MAINTAINED}: it answered 401`);
   }, TIMEOUT);
 
-  test("nothing the calls printed contains the authenticator secret or a code sent to npm", () => {
+  test("nothing the calls printed contains the token or a one-time password sent to npm", () => {
     const output = printed.join("\n");
-    expect(output).not.toContain(TOTP_SECRET);
+    expect(output).not.toContain(TOKEN);
     expect(registry.oneTimePasswordsSeen.length).toBeGreaterThan(0);
     for (const code of registry.oneTimePasswordsSeen) expect(output).not.toMatch(new RegExp(`\\b${code}\\b`));
   });

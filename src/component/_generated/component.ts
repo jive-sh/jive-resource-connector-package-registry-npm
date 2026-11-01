@@ -28,27 +28,24 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "action",
         "internal",
         {
-          account: {
-            secondFactor: { secret: string; type: "totp" };
-            token: string;
-          };
+          account: { token: string };
+          oneTimePassword?: string;
           packageName: string;
         },
         | { status: "created"; version: string }
         | { status: "alreadyExists" }
-        | { status: "maintainedByAnotherAccount" },
+        | { status: "maintainedByAnotherAccount" }
+        | {
+            pageUrl: string;
+            resultUrl: string;
+            status: "secondFactorRequired";
+          },
         Name
       >;
       listTrustedPublishers: FunctionReference<
         "action",
         "internal",
-        {
-          account: {
-            secondFactor: { secret: string; type: "totp" };
-            token: string;
-          };
-          packageName: string;
-        },
+        { account: { token: string }; packageName: string },
         Array<{
           claims: {
             environment?: string;
@@ -72,10 +69,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "action",
         "internal",
         {
-          account: {
-            secondFactor: { secret: string; type: "totp" };
-            token: string;
-          };
+          account: { token: string };
+          oneTimePassword?: string;
           packageName: string;
           publisher: {
             environment?: string;
@@ -84,21 +79,31 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             workflowFile: string;
           };
         },
-        { status: "registered" } | { id: string; status: "alreadyRegistered" },
+        | { status: "registered" }
+        | { id: string; status: "alreadyRegistered" }
+        | {
+            pageUrl: string;
+            resultUrl: string;
+            status: "secondFactorRequired";
+          },
         Name
       >;
       removeTrustedPublisher: FunctionReference<
         "action",
         "internal",
         {
-          account: {
-            secondFactor: { secret: string; type: "totp" };
-            token: string;
-          };
+          account: { token: string };
           id: string;
+          oneTimePassword?: string;
           packageName: string;
         },
-        { status: "removed" } | { status: "notFound" },
+        | { status: "removed" }
+        | { status: "notFound" }
+        | {
+            pageUrl: string;
+            resultUrl: string;
+            status: "secondFactorRequired";
+          },
         Name
       >;
     };

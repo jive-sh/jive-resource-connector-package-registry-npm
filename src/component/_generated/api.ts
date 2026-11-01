@@ -13,9 +13,6 @@ import type * as npm_impl from "../npm/impl.js";
 import type * as npm_interface from "../npm/interface.js";
 import type * as npm_tarball from "../npm/tarball.js";
 import type * as packageRegistry from "../packageRegistry.js";
-import type * as secondFactor_impl from "../secondFactor/impl.js";
-import type * as secondFactor_interface from "../secondFactor/interface.js";
-import type * as secondFactor_totp from "../secondFactor/totp.js";
 import type * as validators from "../validators.js";
 
 import type {
@@ -31,9 +28,6 @@ const fullApi: ApiFromModules<{
   "npm/interface": typeof npm_interface;
   "npm/tarball": typeof npm_tarball;
   packageRegistry: typeof packageRegistry;
-  "secondFactor/impl": typeof secondFactor_impl;
-  "secondFactor/interface": typeof secondFactor_interface;
-  "secondFactor/totp": typeof secondFactor_totp;
   validators: typeof validators;
 }> = anyApi as any;
 
