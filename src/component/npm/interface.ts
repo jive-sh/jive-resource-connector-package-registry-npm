@@ -17,15 +17,13 @@ export interface AsAccount {
   readonly account: Account;
 }
 
-/** A write acting as a person's account, retried with the one-time password a person's answer produced. */
-export interface WriteAsAccount extends AsAccount {
-  readonly maybeOneTimePassword: Option.Option<string>;
-}
+/** A write acting as a person's account. npm's second factor is a security key, not a password this write carries. */
+export interface WriteAsAccount extends AsAccount {}
 
 /**
- * npm wants its second factor before this write: a person answers on `pageUrl` (npm's `authUrl`, a page on
- * www.npmjs.com, in their own browser), and `resultUrl` (npm's `doneUrl`, on the registry) then gives the one-time
- * password to retry the write with. Nothing here answers it.
+ * npm wants its security key before this write. `pageUrl` is npm's page (`authUrl` on www.npmjs.com). `resultUrl` is
+ * npm's `doneUrl`. This connector does not answer the key and does not send `npm-otp`. OpenSK answers the prompt
+ * once that key is registered on the npm account, which is part of instantiating the connection.
  */
 export interface SecondFactorRequired {
   readonly status: "secondFactorRequired";
@@ -38,8 +36,8 @@ export type WriteAnswer<A> = { readonly status: "done"; readonly value: A } | Se
 
 /**
  * One npm registry, reached over its HTTP API. It holds no credential: each call that acts as an account brings
- * it. A write npm guards with its second factor answers `secondFactorRequired` with npm's own page for a person,
- * and succeeds when repeated with the one-time password that page's answer produced.
+ * it. A write npm guards with its security key answers `secondFactorRequired` with npm's own page. A password is
+ * not accepted.
  */
 export interface INpmRegistry {
   /** Whether the registry has any version of the package (404 is no; anything but 200 or 404 fails). */

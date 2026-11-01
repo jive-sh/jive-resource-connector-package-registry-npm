@@ -31,9 +31,9 @@ type RegistryOutcome =
  * however this ends.
  */
 export const ensureInstance = action({
-  args: { instance: packageInstance, caller: resourceCaller, account, oneTimePassword: v.optional(v.string()) },
+  args: { instance: packageInstance, caller: resourceCaller, account },
   returns: ensureInstanceResult,
-  handler: async (ctx, { instance, caller, account, oneTimePassword }): Promise<EnsureInstanceResult> => {
+  handler: async (ctx, { instance, caller, account }): Promise<EnsureInstanceResult> => {
     const { packageName } = instance;
     const record = await ctx.runQuery(internal.resource.packageRecord, { packageName });
     if (record !== null && record.codeRepositoryId !== caller.codeRepository.id) {
@@ -50,7 +50,6 @@ export const ensureInstance = action({
         packageName,
         caller,
         account,
-        maybeOneTimePassword: oneTimePassword === undefined ? Option.none() : Option.some(oneTimePassword),
         maybeRegisteredAt,
         now,
       }));
@@ -68,11 +67,11 @@ export const ensureInstance = action({
   },
 });
 
-/** A write npm wants its second factor for. `url` is npm's page; `resultUrl` is where the one-time password is polled. */
+/** A write npm wants its security key for. `url` is npm's page. OpenSK answers it once that key is on the npm account. */
 function personNeeded(operation: string, factor: { readonly pageUrl: string; readonly resultUrl: string }): RegistryOutcome {
   return {
     status: "personNeeded",
-    reason: `npm asks for its second factor to ${operation}`,
+    reason: `npm asks for its security key to ${operation}`,
     url: factor.pageUrl,
     resultUrl: factor.resultUrl,
   };
@@ -88,13 +87,12 @@ function provision(input: {
   readonly packageName: string;
   readonly caller: ResourceCaller;
   readonly account: Account;
-  readonly maybeOneTimePassword: Option.Option<string>;
   readonly maybeRegisteredAt: Option.Option<number>;
   readonly now: number;
 }): Effect.Effect<RegistryOutcome, RegistryRequestFailed, NpmRegistry> {
   return Effect.gen(function* () {
     const npm = yield* NpmRegistry;
-    const { packageName, caller, account, maybeOneTimePassword } = input;
+    const { packageName, caller, account } = input;
 
     const maybeMaintainers = yield* npm.maintainers(packageName);
     if (Option.isSome(maybeMaintainers)) {
@@ -105,7 +103,6 @@ function provision(input: {
       const published = yield* npm.publishPlaceholder({
         packageName,
         account,
-        maybeOneTimePassword,
         version: PLACEHOLDER_VERSION,
         description: placeholderDescription(packageName),
       });
@@ -126,10 +123,10 @@ function provision(input: {
     });
     if (plan.action === "keep") return { status: "provisioned", registeredPublisher: false } as const;
     for (const id of plan.removeIds) {
-      const removed = yield* npm.removeTrustedPublisher({ packageName, id, account, maybeOneTimePassword });
+      const removed = yield* npm.removeTrustedPublisher({ packageName, id, account });
       if (removed.status === "secondFactorRequired") return personNeeded(`remove trusted publisher ${id} from ${packageName}`, removed);
     }
-    const added = yield* npm.addTrustedPublisher({ packageName, account, claims: wanted, maybeOneTimePassword });
+    const added = yield* npm.addTrustedPublisher({ packageName, account, claims: wanted });
     if (added.status === "secondFactorRequired") return personNeeded(`register a trusted publisher on ${packageName}`, added);
     return { status: "provisioned", registeredPublisher: true } as const;
   });

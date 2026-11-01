@@ -22,7 +22,7 @@ export const trustedPublisherStatus = v.union(v.literal("validated"), v.literal(
 export const trustedPublisher = v.object({ id: v.string(), claims: trustedPublisherClaims, status: trustedPublisherStatus });
 export type TrustedPublisher = Infer<typeof trustedPublisher>;
 
-/** npm wants a person to answer its second factor on `pageUrl`; poll `resultUrl`, then retry with `oneTimePassword`. */
+/** npm wants its security key. `pageUrl` is npm's page. This connector does not take a password. */
 export const secondFactorRequired = v.object({ status: v.literal("secondFactorRequired"), pageUrl: v.string(), resultUrl: v.string() });
 
 export const createPlaceholderResult = v.union(

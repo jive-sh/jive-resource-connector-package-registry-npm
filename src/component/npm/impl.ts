@@ -15,8 +15,8 @@ import { packTarball, toBase64 } from "./tarball";
 /**
  * Wire formats and endpoints are npm's, read from its source, since npm documents no HTTP API for publishing or
  * trusted publishers: `libnpmpublish` (publish), `lib/commands/trust/*.js` (trust, including `revoke`'s DELETE),
- * `lib/utils/get-identity.js` (`/-/whoami`), `lib/commands/owner.js` (maintainers) and `npm-registry-fetch`'s
- * `check-response.js` (how npm asks for the second factor).
+ * `lib/utils/get-identity.js` (`/-/whoami`), `lib/commands/owner.js` (maintainers), and the 401 body
+ * `{ authUrl, doneUrl }` (the page where the account's security key is used).
  */
 
 /** Abbreviated package metadata: what `npm install` asks for, a fraction of the full document. */
@@ -53,13 +53,7 @@ type Packument = typeof Packument.Type;
 
 const Whoami = Schema.fromJsonString(Schema.Struct({ username: Schema.String }));
 
-/**
- * The body of npm's second-factor challenge to a request sent with `npm-auth-type: web`: the page where a person
- * answers, and where the one-time password is then fetched (npm-registry-fetch `check-response.js`).
- */
-const WebAuthChallenge = Schema.fromJsonString(Schema.Struct({ authUrl: Schema.String, doneUrl: Schema.String }));
-
-/** One registry response, its body read once, so detecting the second-factor challenge doesn't consume it. */
+/** One registry response, its body read once, so reading the security-key page doesn't consume it. */
 interface RegistryAnswer {
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
@@ -75,10 +69,22 @@ function succeeded(answer: RegistryAnswer): boolean {
   return answer.status >= 200 && answer.status < 300;
 }
 
-/** npm wants a one-time password: a 401 whose `www-authenticate` lists `otp`, or whose body mentions one, as `check-response.js` treats both. */
-function asksForSecondFactor(answer: RegistryAnswer): boolean {
-  const challenges = (answer.headers["www-authenticate"] ?? "").split(/,\s*/).map((part) => part.toLowerCase());
-  return answer.status === 401 && (challenges.includes("otp") || /one-time pass/.test(answer.text));
+/**
+ * npm's page for using the account's security key: a 401 whose body is `{ authUrl, doneUrl }`, the same body
+ * `@jive-sh/sk-demo` reads. `authUrl` is the page. This does not look for a one-time password.
+ */
+function securityKeyPage(answer: RegistryAnswer): { readonly authUrl: string; readonly doneUrl: string } | undefined {
+  if (answer.status !== 401) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(answer.text);
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    if (!("authUrl" in parsed) || !("doneUrl" in parsed)) return undefined;
+    const { authUrl, doneUrl } = parsed;
+    if (typeof authUrl !== "string" || typeof doneUrl !== "string") return undefined;
+    return { authUrl, doneUrl };
+  } catch {
+    return undefined;
+  }
 }
 
 /** The field names across the configurations in a trust-list body, sorted; none when it is not a JSON array. */
@@ -162,7 +168,7 @@ class NpmRegistryImpl implements INpmRegistry {
   *listTrustedPublishers(input: AsAccount): Effect.fn.Return<ReadonlyArray<TrustedPublisher>, RegistryRequestFailed> {
     const operation = `list the trusted publishers of ${input.packageName}`;
     const answer = yield* this.send(operation, this.authenticated(HttpClientRequest.get(this.trustUrl(input.packageName)), input.account));
-    if (asksForSecondFactor(answer)) return yield* new RegistryRequestFailed({ operation, detail: "npm asked for a second factor to read them" });
+    if (securityKeyPage(answer) !== undefined) return yield* new RegistryRequestFailed({ operation, detail: "npm asked for its security key to read them" });
     if (answer.status !== 200) return yield* this.unexpected(operation, answer);
     yield* this.logTrustConfigFields(answer);
     const configs = yield* this.decode(operation, TrustConfigs, answer);
@@ -263,26 +269,18 @@ class NpmRegistryImpl implements INpmRegistry {
   }
 
   /**
-   * Sends a write as the account, with `npm-otp` when the caller has a one-time password. When npm refuses it for
-   * want of one (its EOTP), answers npm's page for a person instead: a one-time password npm still refuses also
-   * answers it, since only a person's fresh answer can satisfy npm.
+   * Sends a write as the account. When npm refuses it with the security-key page, returns that page.
+   * No `npm-otp` header is sent, and `doneUrl` is not polled.
    */
   private *sendWrite(
     operation: string,
     request: HttpClientRequest.HttpClientRequest,
     input: WriteAsAccount,
   ): Effect.fn.Return<WriteAnswer<RegistryAnswer>, RegistryRequestFailed> {
-    const authenticated = this.authenticated(request, input.account);
-    const answer = yield* this.send(operation, Option.match(input.maybeOneTimePassword, {
-      onNone: () => authenticated,
-      onSome: (oneTimePassword) => HttpClientRequest.setHeader(authenticated, "npm-otp", oneTimePassword),
-    }));
-    if (!asksForSecondFactor(answer)) return { status: "done", value: answer };
-    const challenge = yield* pipe(
-      Schema.decodeUnknownEffect(WebAuthChallenge)(answer.text),
-      Effect.mapError(() => new RegistryRequestFailed({ operation, detail: "npm asked for a one-time password but offered no page to answer it on" })),
-    );
-    const required: SecondFactorRequired = { status: "secondFactorRequired", pageUrl: challenge.authUrl, resultUrl: challenge.doneUrl };
+    const answer = yield* this.send(operation, this.authenticated(request, input.account));
+    const page = securityKeyPage(answer);
+    if (page === undefined) return { status: "done", value: answer };
+    const required: SecondFactorRequired = { status: "secondFactorRequired", pageUrl: page.authUrl, resultUrl: page.doneUrl };
     return required;
   }
 

@@ -6,9 +6,9 @@ npm's trusted publishing. It implements the contract of
 [`jive-abstract-resource-connector-package-registry`](https://github.com/jive-sh/jive-abstract-resource-connector-package-registry),
 whose CLI builds, audits and publishes it.
 
-This package was `jive-connector-package-registry-npm` until 0.2.0. Since this release an account is `{ token }` and
-the second factor is answered by a person on npm's own page (below), where 0.2.0 computed it from an authenticator
-secret it was given.
+This package was `jive-connector-package-registry-npm` until 0.2.0. An account is `{ token }`. npm's second factor is
+the account's security key. Adding that key to the npm account is part of instantiating the connection, and OpenSK
+answers the prompt. This connector does not take a password.
 
 ## Install it in a Convex app
 
@@ -65,9 +65,10 @@ publishing, and answers `ready` (with `instanceId`, this component's id for the 
 5. **Recorded:** the package, its repository, and when each environment's publisher was registered, in the
    component's `packages` table. The claim is released however this ends.
 
-It sends no one-time password, so a write npm guards with its second factor answers `personNeeded` with npm's page
-as `url`. A person's answer can't be passed back yet, so only a package that needs no write (it exists and its
-publisher for the caller has published) comes back `ready`.
+It sends no password. A write npm guards with its security key answers `personNeeded` with npm's page as `url`.
+Adding the organization's signing passkey on that page is part of instantiating the connection; OpenSK answers the
+prompt. Until npm accepts the write without asking, only a package that needs no write (it exists and its publisher
+for the caller has published) comes back `ready`.
 
 ## Functions
 
@@ -75,10 +76,10 @@ publisher for the caller has published) comes back `ready`.
 | --- | --- | --- |
 | `resource.ensureInstance` | `{ instance: { packageName }, caller, account }` | `ready` \| `inProgress` \| `personNeeded` \| `refused` (above) |
 | `packageExists` | `{ packageName }` | `boolean` |
-| `createPlaceholder` | `{ packageName, account, oneTimePassword? }` | `{ status: "created", version: "0.0.0" }` \| `{ status: "alreadyExists" }` \| `{ status: "maintainedByAnotherAccount" }` \| `secondFactorRequired` |
+| `createPlaceholder` | `{ packageName, account }` | `{ status: "created", version: "0.0.0" }` \| `{ status: "alreadyExists" }` \| `{ status: "maintainedByAnotherAccount" }` \| `secondFactorRequired` |
 | `listTrustedPublishers` | `{ packageName, account }` | `Array<{ id, claims, status: "validated" \| "unvalidated" }>` (GitHub Actions publishers only) |
-| `registerTrustedPublisher` | `{ packageName, publisher, account, oneTimePassword? }` | `{ status: "registered" }` \| `{ status: "alreadyRegistered", id }` \| `secondFactorRequired` |
-| `removeTrustedPublisher` | `{ packageName, id, account, oneTimePassword? }` | `{ status: "removed" }` \| `{ status: "notFound" }` \| `secondFactorRequired` |
+| `registerTrustedPublisher` | `{ packageName, publisher, account }` | `{ status: "registered" }` \| `{ status: "alreadyRegistered", id }` \| `secondFactorRequired` |
+| `removeTrustedPublisher` | `{ packageName, id, account }` | `{ status: "removed" }` \| `{ status: "notFound" }` \| `secondFactorRequired` |
 
 They are the first two steps of provisioning a new package:
 
@@ -103,18 +104,19 @@ documents neither field. npm's trust list reports no expiry either, so an unvali
 expired; the caller that registered it knows when it did. `listTrustedPublishers` logs the field names (never
 values) npm's trust list returns, so the first live call shows whether npm marks expiry after all.
 
-### The second factor
+### The security key
 
-npm asks for the account's second factor before it publishes or changes trusted publishers, by refusing the
-request with a 401 whose `www-authenticate` lists `otp` or whose body mentions a one-time password (npm's EOTP).
-Every request carries `npm-auth-type: web`, as npm's CLI sends, so the refusal's body names npm's own page for a person
-(`authUrl`, on www.npmjs.com) and where the one-time password their answer produces is fetched (`doneUrl`, on the
-registry). The write then answers `{ status: "secondFactorRequired", pageUrl, resultUrl }` with those two; the caller
-sends the person to `pageUrl`, polls `resultUrl`, and repeats the call with the password as `oneTimePassword`,
-which goes to npm as `npm-otp`. A password npm refuses answers `secondFactorRequired` again, for a fresh answer.
-The component never answers a second factor itself, and no token or one-time password is returned, logged or put
-in an error. A read takes no one-time password: if npm asks `listTrustedPublishers` for a second factor, the call
-fails.
+npm asks for the account's security key before it publishes or changes trusted publishers, by refusing the request
+with a 401 whose body is `{ authUrl, doneUrl }`. That body is the page where a key already on the account is used.
+Every request carries `npm-auth-type: web`. The write answers `{ status: "secondFactorRequired", pageUrl, resultUrl }`
+with those two, and `ensureInstance` answers `personNeeded` with the page as `url`. OpenSK, in `@jive-sh/sk-demo`,
+answers that page through `POST /security-key/sign`. This connector does not send `npm-otp` and does not poll
+`resultUrl`. Adding the key to the account is a different page, and npm's documentation says a security key can
+only be configured on the website: sign in, then Account, then Enable 2FA, then Add security key
+([Configuring two-factor authentication](https://docs.npmjs.com/configuring-two-factor-authentication/)). That
+documentation gives no direct address for the account page, so this connector does not open one. No token is
+returned, logged or put in an error. A read takes no password: if npm asks `listTrustedPublishers` for the key,
+the call fails.
 
 ## How it is verified
 
@@ -123,15 +125,15 @@ runs the tests:
 
 - `test/registry.test.ts` calls every function through the example app, inside Convex's runtime:
   - against registry.npmjs.org, read-only: `packageExists` finds `convex` and not an unused name;
-  - against a fake registry that answers as npm's source says npm does, refusing a write without the
-    one-time password its fake answer page hands out: the publish document (its tarball extracts with the system's `tar`,
-    and its integrity and shasum match), the maintainer check, the trust request body, idempotent registration
-    (owner and repository names compared case-insensitively), validated status, removal, the `secondFactorRequired` answer
-    and the retry with the password, a refused password, a refused token, and that nothing printed contains the
-    token or a password;
+  - against a fake registry that answers as npm's source says npm does, refusing a guarded write with npm's
+    security-key page and accepting a write only when that guard is off: the publish document (its tarball extracts
+    with the system's `tar`, and its integrity and shasum match), the maintainer check, the trust request body,
+    idempotent registration (owner and repository names compared case-insensitively), validated status, removal,
+    the `secondFactorRequired` answer, a refused token, and that nothing printed contains the token and no `npm-otp`
+    was sent;
   - `resource.ensureInstance` against the same fake: a new package answering `personNeeded` with npm's `authUrl`
-    as `url` and `doneUrl` as `resultUrl`, publishing nothing; the same call with `oneTimePassword` sending it as
-    `npm-otp` and becoming `ready`; a package whose publisher has published `ready` with no write and the same `instanceId`
+    as `url` and `doneUrl` as `resultUrl`, publishing nothing; the same package becoming `ready` when npm does not
+    ask for the key, with no `npm-otp`; a package whose publisher has published `ready` with no write and the same `instanceId`
     each time, another code repository refused, a package another account maintains refused, an unrecorded
     unvalidated publisher replaced, and a held claim answering `inProgress`.
 - `test/publisherPlan.test.ts`: when a publisher is kept and when it is replaced.

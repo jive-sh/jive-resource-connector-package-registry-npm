@@ -11,7 +11,7 @@
       "devDependencies": {
         "@types/bun": "^1.3.14",
         "convex": "^1.48.0",
-        "jive-abstract-resource-connector-package-registry": "^0.3.0",
+        "jive-abstract-resource-connector-package-registry": "^0.4.0",
         "typescript": "^5.9.3",
       },
       "peerDependencies": {
@@ -124,17 +124,17 @@
 
     "jive-abstract-resource-connector-linux-x64": ["jive-abstract-resource-connector@0.1.0-latest-linux-x64", "", { "os": "linux", "cpu": "x64" }, "sha512-kFrJOdsA9bQvxl1TE5aCzdLAAeV+DDDB85PyXlCG7nVIcb+ZgHcox5qoKTMk5LiNwoFeU0QjAM7cIl5nj5PFEQ=="],
 
-    "jive-abstract-resource-connector-package-registry": ["jive-abstract-resource-connector-package-registry@0.3.0", "", { "dependencies": { "jive-abstract-resource": "^0.2.0", "jive-abstract-resource-connector": "^0.1.0" }, "optionalDependencies": { "jive-abstract-resource-connector-package-registry-darwin-arm64": "npm:jive-abstract-resource-connector-package-registry@0.3.0-latest-darwin-arm64", "jive-abstract-resource-connector-package-registry-darwin-x64": "npm:jive-abstract-resource-connector-package-registry@0.3.0-latest-darwin-x64", "jive-abstract-resource-connector-package-registry-linux-arm64": "npm:jive-abstract-resource-connector-package-registry@0.3.0-latest-linux-arm64", "jive-abstract-resource-connector-package-registry-linux-x64": "npm:jive-abstract-resource-connector-package-registry@0.3.0-latest-linux-x64", "jive-abstract-resource-connector-package-registry-windows-x64": "npm:jive-abstract-resource-connector-package-registry@0.3.0-latest-windows-x64" }, "peerDependencies": { "convex": "^1.48.0", "effect": "^4.0.0", "typescript": "^5.9.3" }, "bin": { "jive-resource-connector-package-registry": "bin/jive-resource-connector-package-registry" } }, "sha512-E2y2QcR/j4iFsyfCJEwB33xUqZ6Uqm5CvxIWywbzXP77822hxiJmNyH4yD/tIcROuqWhxRvIyMo5L9RjMrADhw=="],
+    "jive-abstract-resource-connector-package-registry": ["jive-abstract-resource-connector-package-registry@0.4.0", "", { "dependencies": { "jive-abstract-resource": "^0.2.0", "jive-abstract-resource-connector": "^0.1.0" }, "optionalDependencies": { "jive-abstract-resource-connector-package-registry-darwin-arm64": "npm:jive-abstract-resource-connector-package-registry@0.4.0-latest-darwin-arm64", "jive-abstract-resource-connector-package-registry-darwin-x64": "npm:jive-abstract-resource-connector-package-registry@0.4.0-latest-darwin-x64", "jive-abstract-resource-connector-package-registry-linux-arm64": "npm:jive-abstract-resource-connector-package-registry@0.4.0-latest-linux-arm64", "jive-abstract-resource-connector-package-registry-linux-x64": "npm:jive-abstract-resource-connector-package-registry@0.4.0-latest-linux-x64", "jive-abstract-resource-connector-package-registry-windows-x64": "npm:jive-abstract-resource-connector-package-registry@0.4.0-latest-windows-x64" }, "peerDependencies": { "convex": "^1.48.0", "effect": "^4.0.0", "typescript": "^5.9.3" }, "bin": { "jive-resource-connector-package-registry": "bin/jive-resource-connector-package-registry" } }, "sha512-HEog1ENLm8mFVuVYWd/cCLe4j3mcmj3fs6AoBmoFFKUGcnNkgBSjPK2CAMLli59U0F6ByKPI2WBo9VFwyr7GyA=="],
 
-    "jive-abstract-resource-connector-package-registry-darwin-arm64": ["jive-abstract-resource-connector-package-registry@0.3.0-latest-darwin-arm64", "", { "os": "darwin", "cpu": "arm64" }, "sha512-1eL/kfehP1iBSGsbLV5WOm+JlqAImuUzqKrkHrHwcfrrvnSK2X4T1pE/N6A1m7A0G1XpojVTD5Yls3awgPgHRA=="],
+    "jive-abstract-resource-connector-package-registry-darwin-arm64": ["jive-abstract-resource-connector-package-registry@0.4.0-latest-darwin-arm64", "", { "os": "darwin", "cpu": "arm64" }, "sha512-W9xaoZWTfihZJmpLNjgePNIxycZ/iIDBmZWzhxac/97LRRbnQfxWeB4tPqEhn7wEG9MKe/iZzbT5nGQv/3UxRQ=="],
 
-    "jive-abstract-resource-connector-package-registry-darwin-x64": ["jive-abstract-resource-connector-package-registry@0.3.0-latest-darwin-x64", "", { "os": "darwin", "cpu": "x64" }, "sha512-y8vUAOUmwGu/P00zidtBe1aWzjwDnPNoBdTkokjhgZavf68AlCz8mI1/KIQc4I5CfD4N2wyiD2xK21tG0vswjg=="],
+    "jive-abstract-resource-connector-package-registry-darwin-x64": ["jive-abstract-resource-connector-package-registry@0.4.0-latest-darwin-x64", "", { "os": "darwin", "cpu": "x64" }, "sha512-ckW7dsD0GGjnWixDYcxoQ3uAhe162FblmJxVYvdob/zRGJvopePc0RgAfRdAa2SLznPpR0yyv6pIP48tZbZkfA=="],
 
-    "jive-abstract-resource-connector-package-registry-linux-arm64": ["jive-abstract-resource-connector-package-registry@0.3.0-latest-linux-arm64", "", { "os": "linux", "cpu": "arm64" }, "sha512-0eaqTpInoE2UNFr5QEc+D7kbN2ubhD1AMDdOXc9J9NpcHlNMsrabfTUxAd3Yq7tpm2xPfWTFLFNf4qQoCw8raQ=="],
+    "jive-abstract-resource-connector-package-registry-linux-arm64": ["jive-abstract-resource-connector-package-registry@0.4.0-latest-linux-arm64", "", { "os": "linux", "cpu": "arm64" }, "sha512-W2st+uoM6iBtERkLxjhAQKfIH3W9pMbrEyBl6afCltta3kS02JV3DGUvs1oU/5rIt8cJKKSf9LaYqXHTaORfdg=="],
 
-    "jive-abstract-resource-connector-package-registry-linux-x64": ["jive-abstract-resource-connector-package-registry@0.3.0-latest-linux-x64", "", { "os": "linux", "cpu": "x64" }, "sha512-825Z3TYImrWXwm17QsNZV771FtU64QbE2MStQDxY46pWCRanBQABTSTV9//xkzhoNWa8jXpmG8FzsFBNXRTN/Q=="],
+    "jive-abstract-resource-connector-package-registry-linux-x64": ["jive-abstract-resource-connector-package-registry@0.4.0-latest-linux-x64", "", { "os": "linux", "cpu": "x64" }, "sha512-ImmD2vhVijhvR/v8wSRyw5CPoXNtnWqg9N7CL47KEchjBp/y/UAKchKqflfpRiZt/a3AMfZl4VltNU9l04CM/g=="],
 
-    "jive-abstract-resource-connector-package-registry-windows-x64": ["jive-abstract-resource-connector-package-registry@0.3.0-latest-windows-x64", "", { "os": "win32", "cpu": "x64" }, "sha512-PRQXTThKtbA6KCoVB6rrT6o47/qmaTzO3WsVOmS1dBdrHtdnpVq9eNFsITmw/TrrJQ1u9ZJzJ060j9WDDmx5vQ=="],
+    "jive-abstract-resource-connector-package-registry-windows-x64": ["jive-abstract-resource-connector-package-registry@0.4.0-latest-windows-x64", "", { "os": "win32", "cpu": "x64" }, "sha512-gyQCIdLn3YlKZDFRfTUaXlnkwSmURUsz8XHjM86jTIWWMRWroSbwCngZR66D6aYMIxbgKCvP0HfqpguspDZaOQ=="],
 
     "jive-abstract-resource-connector-windows-x64": ["jive-abstract-resource-connector@0.1.0-latest-windows-x64", "", { "os": "win32", "cpu": "x64" }, "sha512-qSUPc3aitwsyYRvPpvHeU61ba3Tt0i2QP9YT9xqMrkjfdQk0kqoOZzXP419W5drcI9Ncd7jAcRrJJJcTbiYJlg=="],
 

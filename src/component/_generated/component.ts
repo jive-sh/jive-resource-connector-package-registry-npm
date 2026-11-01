@@ -27,11 +27,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       createPlaceholder: FunctionReference<
         "action",
         "internal",
-        {
-          account: { token: string };
-          oneTimePassword?: string;
-          packageName: string;
-        },
+        { account: { token: string }; packageName: string },
         | { status: "created"; version: string }
         | { status: "alreadyExists" }
         | { status: "maintainedByAnotherAccount" }
@@ -70,7 +66,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           account: { token: string };
-          oneTimePassword?: string;
           packageName: string;
           publisher: {
             environment?: string;
@@ -91,12 +86,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       removeTrustedPublisher: FunctionReference<
         "action",
         "internal",
-        {
-          account: { token: string };
-          id: string;
-          oneTimePassword?: string;
-          packageName: string;
-        },
+        { account: { token: string }; id: string; packageName: string },
         | { status: "removed" }
         | { status: "notFound" }
         | {
@@ -119,7 +109,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             workflowFile: string;
           };
           instance: { packageName: string };
-          oneTimePassword?: string;
         },
         | {
             instance: { packageName: string };
