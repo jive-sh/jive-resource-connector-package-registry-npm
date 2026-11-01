@@ -245,6 +245,78 @@ describe("against a fake registry", () => {
     expect(result.ok ? "" : result.error).toContain(`could not list the trusted publishers of ${MAINTAINED}: it answered 401`);
   }, TIMEOUT);
 
+  describe("resource.ensureInstance", () => {
+    const caller = (id: string) => ({ codeRepository: { id, owner: "jive-sh", name: "example" }, environment: "latest", workflowFile: "pipeline.yml" });
+    const ensure = (packageName: string, codeRepositoryId: string) => call("ensureInstance", { instance: { packageName }, caller: caller(codeRepositoryId), account });
+    /** A package the account maintains, with one publisher for jive-sh/example's pipeline.yml in `latest`. */
+    function maintainedWithPublisher(packageName: string, id: string, input: { readonly published: boolean }) {
+      registry.maintainers.set(packageName, [USERNAME]);
+      registry.trust.set(packageName, [{
+        id,
+        type: "github",
+        claims: { repository: "jive-sh/example", workflow_ref: { file: "pipeline.yml" }, environment: "latest" },
+        permissions: ["createPackage"],
+      }]);
+      if (input.published) registry.publishedThrough.set(packageName, [id]);
+    }
+
+    test("a new package answers personNeeded with npm's page, publishing nothing, and releases its claim", async () => {
+      const packageName = "@jive-sh/ensure-new";
+      const publishes = registry.publishes.length;
+      const personNeeded = {
+        ok: true,
+        value: {
+          status: "personNeeded",
+          reason: `npm asks for its second factor to publish ${packageName}'s placeholder; a person answers it on npm's page, and Jive cannot pass that answer back to npm yet`,
+          url: "https://www.npmjs.com/auth/cli/approve-1",
+        },
+      };
+      expect(await ensure(packageName, "repo-1")).toEqual(personNeeded);
+      // Not inProgress: the first call released its claim.
+      expect(await ensure(packageName, "repo-1")).toEqual(personNeeded);
+      expect(registry.publishes).toHaveLength(publishes);
+    }, TIMEOUT);
+
+    test("a package whose publisher for the caller has published is ready with no write, with the same instanceId every time", async () => {
+      const packageName = "ensure-ready";
+      maintainedWithPublisher(packageName, "trust-ready", { published: true });
+      const trustRequests = registry.trustRequests.length;
+      const first = await ensure(packageName, "repo-1");
+      expect(first).toMatchObject({ ok: true, value: { status: "ready", instance: { packageName } } });
+      const instanceId = first.ok ? first.value.instanceId : undefined;
+      expect(instanceId).toBeString();
+      expect(await ensure(packageName, "repo-1")).toEqual({ ok: true, value: { status: "ready", instanceId, instance: { packageName } } });
+      expect(registry.trustRequests).toHaveLength(trustRequests);
+    }, TIMEOUT);
+
+    test("the package is bound to the code repository that provisioned it; another is refused before npm is asked", async () => {
+      expect(await ensure("ensure-ready", "repo-2"))
+        .toEqual({ ok: true, value: { status: "refused", reason: "ensure-ready is provisioned for another code repository" } });
+    }, TIMEOUT);
+
+    test("a package another npm account maintains is refused", async () => {
+      expect(await ensure(SOMEONE_ELSES, "repo-1")).toEqual({
+        ok: true,
+        value: { status: "refused", reason: `${SOMEONE_ELSES} exists on npm and the organization's npm account does not maintain it` },
+      });
+    }, TIMEOUT);
+
+    test("an unvalidated publisher Jive has no record of registering may have expired, so it is replaced: npm's page for the removal", async () => {
+      maintainedWithPublisher("ensure-stale", "trust-stale", { published: false });
+      const result = await ensure("ensure-stale", "repo-1");
+      expect(result).toMatchObject({ ok: true, value: { status: "personNeeded", reason: expect.stringContaining("remove trusted publisher trust-stale from ensure-stale") } });
+    }, TIMEOUT);
+
+    test("while another caller holds the package's claim, the answer is inProgress", async () => {
+      const claimed = await convex(["run", "--component", "packageRegistryNpm", "resource:claim", JSON.stringify({ packageName: "ensure-ready", holder: "another-job" })]);
+      expect(claimed.exitCode, claimed.stderr).toBe(0);
+      expect(await ensure("ensure-ready", "repo-1")).toEqual({ ok: true, value: { status: "inProgress", retryAfterSeconds: 10 } });
+      const released = await convex(["run", "--component", "packageRegistryNpm", "resource:release", JSON.stringify({ packageName: "ensure-ready", holder: "another-job" })]);
+      expect(released.exitCode, released.stderr).toBe(0);
+      expect(await ensure("ensure-ready", "repo-1")).toMatchObject({ ok: true, value: { status: "ready" } });
+    }, TIMEOUT);
+  });
+
   test("nothing the calls printed contains the token or a one-time password sent to npm", () => {
     const output = printed.join("\n");
     expect(output).not.toContain(TOKEN);

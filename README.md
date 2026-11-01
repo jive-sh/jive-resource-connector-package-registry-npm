@@ -34,10 +34,46 @@ person's npm login. It holds no second-factor secret either (below). One install
 are kept (and how they are renewed) is the calling app's decision. `packageExists` acts as no account and sees
 public packages only.
 
+## The standard call: `resource.ensureInstance`
+
+The call every resource has (jive-abstract-resource), and what `@jive-sh/server`'s `resources:provision` calls for kind
+`connector-package-registry`:
+
+```ts
+ctx.runAction(components.packageRegistryNpm.resource.ensureInstance, {
+  instance: { packageName: "@scope/name" },
+  caller: { codeRepository: { id, owner, name }, environment: "latest", workflowFile: "pipeline.yml" },
+  account: { token },
+});
+```
+
+It makes sure the package exists and that the caller's workflow and environment may publish it by trusted
+publishing, and answers `ready` (with `instanceId`, this component's id for the package), `inProgress`,
+`personNeeded` or `refused`. Run before every publish, it reads npm before it writes:
+
+1. **Bound to one code repository:** the first `codeRepository.id` that provisions a package owns it here; another
+   is refused before npm is asked.
+2. **One at a time:** a mutation claims the package (`provisioningClaims`), so of two callers only one acts; the
+   other gets `inProgress` (`retryAfterSeconds: 10`). A claim lasts 5 minutes, so one left by a dead action is taken
+   over.
+3. **The package:** created as `0.0.0` if missing, as `createPlaceholder` does; one another npm account maintains is
+   refused.
+4. **The publisher:** a validated one for the caller's repository, workflow and environment is kept, and so is one
+   Jive registered less than 47 hours ago. An unvalidated one that is older, or that this component never
+   registered, may have expired (npm expires a publisher unused for 2 days and doesn't say so), so it is removed and
+   registered again (`src/component/publisherPlan.ts`).
+5. **Recorded:** the package, its repository, and when each environment's publisher was registered, in the
+   component's `packages` table. The claim is released however this ends.
+
+It sends no one-time password, so a write npm guards with its second factor answers `personNeeded` with npm's page
+as `url`. A person's answer can't be passed back yet, so only a package that needs no write (it exists and its
+publisher for the caller has published) comes back `ready`.
+
 ## Functions
 
 | Function | Arguments | Returns |
 | --- | --- | --- |
+| `resource.ensureInstance` | `{ instance: { packageName }, caller, account }` | `ready` \| `inProgress` \| `personNeeded` \| `refused` (above) |
 | `packageExists` | `{ packageName }` | `boolean` |
 | `createPlaceholder` | `{ packageName, account, oneTimePassword? }` | `{ status: "created", version: "0.0.0" }` \| `{ status: "alreadyExists" }` \| `{ status: "maintainedByAnotherAccount" }` \| `secondFactorRequired` |
 | `listTrustedPublishers` | `{ packageName, account }` | `Array<{ id, claims, status: "validated" \| "unvalidated" }>` (GitHub Actions publishers only) |
@@ -92,7 +128,12 @@ runs the tests:
     and its integrity and shasum match), the maintainer check, the trust request body, idempotent registration
     (owner and repository names compared case-insensitively), validated status, removal, the `secondFactorRequired` answer
     and the retry with the password, a refused password, a refused token, and that nothing printed contains the
-    token or a password.
+    token or a password;
+  - `resource.ensureInstance` against the same fake: a new package answering `personNeeded` with npm's page and
+    publishing nothing, a package whose publisher has published `ready` with no write and the same `instanceId`
+    each time, another code repository refused, a package another account maintains refused, an unrecorded
+    unvalidated publisher replaced, and a held claim answering `inProgress`.
+- `test/publisherPlan.test.ts`: when a publisher is kept and when it is replaced.
 
 Not verified against npm itself, because nothing here writes to npm: the publish, trust and revoke requests, and
 npm's web second-factor flow for them (`authUrl` and `doneUrl` follow npm-registry-fetch's `check-response.js`).

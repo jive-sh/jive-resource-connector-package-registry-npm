@@ -107,4 +107,28 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         Name
       >;
     };
+    resource: {
+      ensureInstance: FunctionReference<
+        "action",
+        "internal",
+        {
+          account: { token: string };
+          caller: {
+            codeRepository: { id: string; name: string; owner: string };
+            environment: string;
+            workflowFile: string;
+          };
+          instance: { packageName: string };
+        },
+        | {
+            instance: { packageName: string };
+            instanceId: string;
+            status: "ready";
+          }
+        | { retryAfterSeconds: number; status: "inProgress" }
+        | { reason: string; status: "personNeeded"; url: string }
+        | { reason: string; status: "refused" },
+        Name
+      >;
+    };
   };

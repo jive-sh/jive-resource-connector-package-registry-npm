@@ -13,6 +13,10 @@ import type * as npm_impl from "../npm/impl.js";
 import type * as npm_interface from "../npm/interface.js";
 import type * as npm_tarball from "../npm/tarball.js";
 import type * as packageRegistry from "../packageRegistry.js";
+import type * as placeholder from "../placeholder.js";
+import type * as publisherPlan from "../publisherPlan.js";
+import type * as registry from "../registry.js";
+import type * as resource from "../resource.js";
 import type * as validators from "../validators.js";
 
 import type {
@@ -28,6 +32,10 @@ const fullApi: ApiFromModules<{
   "npm/interface": typeof npm_interface;
   "npm/tarball": typeof npm_tarball;
   packageRegistry: typeof packageRegistry;
+  placeholder: typeof placeholder;
+  publisherPlan: typeof publisherPlan;
+  registry: typeof registry;
+  resource: typeof resource;
   validators: typeof validators;
 }> = anyApi as any;
 

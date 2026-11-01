@@ -42,3 +42,20 @@ export const removeTrustedPublisher = action({
   args: { packageName: v.string(), id: v.string(), account, oneTimePassword },
   handler: (ctx, args) => ctx.runAction(registry.removeTrustedPublisher, args),
 });
+
+/**
+ * The standard call: make sure a package exists and that the caller's workflow may publish it. A real app passes the
+ * caller it verified (`@jive-sh/server`: from the deploy job's pipeline session) and the organization's sealed account.
+ */
+export const ensureInstance = action({
+  args: {
+    instance: v.object({ packageName: v.string() }),
+    caller: v.object({
+      codeRepository: v.object({ id: v.string(), owner: v.string(), name: v.string() }),
+      environment: v.string(),
+      workflowFile: v.string(),
+    }),
+    account,
+  },
+  handler: (ctx, args) => ctx.runAction(components.packageRegistryNpm.resource.ensureInstance, args),
+});

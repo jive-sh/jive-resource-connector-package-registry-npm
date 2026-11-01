@@ -1,9 +1,10 @@
 import { v } from "convex/values";
-import { Effect, Layer, Option, pipe } from "effect";
-import { action, env } from "./_generated/server";
+import { Effect, Option } from "effect";
+import { action } from "./_generated/server";
 import { sameClaims } from "./claims";
-import { npmRegistryLayer } from "./npm/impl";
 import { NpmRegistry } from "./npm/interface";
+import { PLACEHOLDER_VERSION, placeholderDescription } from "./placeholder";
+import { runAgainstRegistry } from "./registry";
 import {
   account,
   createPlaceholderResult,
@@ -21,22 +22,6 @@ import {
  * in their own browser; the caller polls `resultUrl` for the one-time password and repeats the call with it as
  * `oneTimePassword`. Nothing here answers a second factor.
  */
-
-const NPM_REGISTRY_URL = "https://registry.npmjs.org";
-
-/**
- * The version a placeholder is published at. npm points `latest` at a package's first version whatever tag it is
- * published under, so the placeholder is the lowest version there is, and CI's first release replaces it.
- */
-const PLACEHOLDER_VERSION = "0.0.0";
-
-function runAgainstRegistry<A, E extends { readonly message: string }>(program: Effect.Effect<A, E, NpmRegistry>): Promise<A> {
-  return Effect.runPromise(pipe(
-    program,
-    Effect.mapError((e) => new Error(e.message)),
-    Effect.provide(npmRegistryLayer(env.NPM_REGISTRY_URL ?? NPM_REGISTRY_URL)),
-  ));
-}
 
 /** Whether the registry has any version of the package. Public packages only: it acts as no account. */
 export const packageExists = action({
@@ -68,7 +53,7 @@ export const createPlaceholder = action({
       account,
       maybeOneTimePassword: Option.fromUndefinedOr(oneTimePassword),
       version: PLACEHOLDER_VERSION,
-      description: `Reserved by Jive: ${packageName}'s first release is published by its CI pipeline.`,
+      description: placeholderDescription(packageName),
     });
     if (published.status === "secondFactorRequired") return published;
     return { status: "created", version: PLACEHOLDER_VERSION } as const;

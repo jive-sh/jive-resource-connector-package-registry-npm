@@ -38,6 +38,26 @@ export const registerTrustedPublisherResult = v.union(
   secondFactorRequired,
 );
 
+/** One package, as a package's jive block declares it: an instance of this resource. */
+export const packageInstance = v.object({ packageName: v.string() });
+
+/** The deploy job asking, as the installing app verified it (`ResourceCaller`, jive-abstract-resource). */
+export const resourceCaller = v.object({
+  codeRepository: v.object({ id: v.string(), owner: v.string(), name: v.string() }),
+  environment: v.string(),
+  workflowFile: v.string(),
+});
+export type ResourceCaller = Infer<typeof resourceCaller>;
+
+/** `EnsureInstanceResult<{ packageName }>` (jive-abstract-resource). */
+export const ensureInstanceResult = v.union(
+  v.object({ status: v.literal("ready"), instanceId: v.string(), instance: packageInstance }),
+  v.object({ status: v.literal("inProgress"), retryAfterSeconds: v.number() }),
+  v.object({ status: v.literal("personNeeded"), reason: v.string(), url: v.string() }),
+  v.object({ status: v.literal("refused"), reason: v.string() }),
+);
+export type EnsureInstanceResult = Infer<typeof ensureInstanceResult>;
+
 export const removeTrustedPublisherResult = v.union(
   v.object({ status: v.literal("removed") }),
   v.object({ status: v.literal("notFound") }),
